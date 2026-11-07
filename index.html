@@ -1,0 +1,800 @@
+```html
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bangladeshi Highway Bus Simulator 3D</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .ui-overlay {
+            position: absolute;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .interactive {
+            pointer-events: auto;
+        }
+        /* Gauge style */
+        .speedo-circle {
+            background: rgba(15, 23, 42, 0.85);
+            border: 3px solid #10B981;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        /* Glass effect */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Mobile Touch Controls styling */
+        .btn-touch {
+            background: rgba(30, 41, 59, 0.7);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            active:bg-emerald-600;
+        }
+        .btn-touch:active {
+            background: rgba(16, 185, 129, 0.8) !important;
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white select-none">
+
+    <!-- 3D Viewport Container -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay Controls & HUD -->
+    <div class="ui-overlay inset-0 flex flex-col justify-between p-4">
+        
+        <!-- TOP HUD BAR -->
+        <div class="flex justify-between items-start w-full max-w-7xl mx-auto">
+            <!-- Route Info & Score -->
+            <div class="glass-panel p-3 rounded-xl flex flex-col gap-1 shadow-lg">
+                <div class="flex items-center space-x-2 text-emerald-400 font-bold text-sm sm:text-base">
+                    <i class="fa-solid font-bold fa-route"></i>
+                    <span id="route-name">DHAKA ➔ CHITTAGONG HIGHWAY</span>
+                </div>
+                <div class="text-xs text-slate-300 flex items-center space-x-4">
+                    <span><i class="fa-solid fa-bus text-amber-400"></i> Next Stop: <strong id="next-stop" class="text-white">Comilla Highway Inn</strong></span>
+                    <span><i class="fa-solid fa-users text-blue-400"></i> Passengers: <strong id="passenger-count" class="text-white">28</strong></span>
+                </div>
+            </div>
+
+            <!-- Mini Map & Environment Toggles -->
+            <div class="flex gap-3 items-center">
+                <!-- Control Buttons -->
+                <div class="flex flex-col gap-2">
+                    <button id="btn-camera" class="interactive glass-panel hover:bg-slate-700 text-xs px-3 py-2 rounded-lg flex items-center gap-2 border border-slate-600 transition">
+                        <i class="fa-solid fa-camera"></i> <span class="hidden sm:inline">Camera (C)</span>
+                    </button>
+                    <button id="btn-weather" class="interactive glass-panel hover:bg-slate-700 text-xs px-3 py-2 rounded-lg flex items-center gap-2 border border-slate-600 transition">
+                        <i class="fa-solid fa-sun text-yellow-400" id="weather-icon"></i> <span class="hidden sm:inline">Day/Night</span>
+                    </button>
+                    <button id="btn-horn" class="interactive glass-panel hover:bg-emerald-600 bg-emerald-700 text-xs px-3 py-2 rounded-lg flex items-center gap-2 text-white font-bold transition">
+                        <i class="fa-solid fa-bullhorn"></i> HORN (H)
+                    </button>
+                </div>
+
+                <!-- MiniMap Canvas Container -->
+                <div class="glass-panel p-2 rounded-xl flex flex-col items-center">
+                    <canvas id="minimap" width="100" height="100" class="rounded-lg bg-slate-950 border border-slate-700"></canvas>
+                    <span class="text-[10px] text-slate-400 mt-1 font-mono">RADAR GPS</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER NOTIFICATION / MESSAGES -->
+        <div id="toast-msg" class="self-center bg-emerald-600/90 text-white font-semibold text-center px-6 py-2 rounded-full shadow-2xl opacity-0 transition-opacity duration-300 pointer-events-none transform -translate-y-4">
+            Welcome to Dhaka-Chittagong Expressway! Pick passengers along the road stops.
+        </div>
+
+        <!-- BOTTOM HUD BAR & CONTROLS -->
+        <div class="w-full max-w-7xl mx-auto flex justify-between items-end pb-2">
+            
+            <!-- Mobile Left Touch Controls (Steering) -->
+            <div class="interactive flex gap-2 md:hidden">
+                <button id="btn-left" class="btn-touch w-16 h-16 rounded-full flex items-center justify-center text-2xl text-white shadow-lg">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+                <button id="btn-right" class="btn-touch w-16 h-16 rounded-full flex items-center justify-center text-2xl text-white shadow-lg">
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+
+            <!-- Desktop Key Controls Hint -->
+            <div class="hidden md:flex glass-panel px-4 py-2 rounded-lg text-xs text-slate-400 gap-4">
+                <div><kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">W</kbd> / <kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">↑</kbd> Accelerate</div>
+                <div><kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">S</kbd> / <kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">↓</kbd> Brake / Rev</div>
+                <div><kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">A</kbd> / <kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">D</kbd> Steering</div>
+                <div><kbd class="bg-slate-700 px-1.5 py-0.5 rounded text-white">Space</kbd> Handbrake</div>
+            </div>
+
+            <!-- Speedometer Display -->
+            <div class="speedo-circle w-28 h-28 sm:w-36 sm:h-36 rounded-full flex flex-col items-center justify-center relative shadow-2xl">
+                <span class="text-xs text-slate-400 font-bold uppercase tracking-widest">Speed</span>
+                <span id="speed-display" class="text-3xl sm:text-4xl font-extrabold text-emerald-400 font-mono my-0">0</span>
+                <span class="text-[10px] text-emerald-500 font-semibold">KM/H</span>
+                <!-- Gear status -->
+                <span id="gear-display" class="absolute bottom-2 text-[11px] bg-slate-800 px-2 py-0.5 rounded-full text-slate-300 border border-slate-700">GEAR: D</span>
+            </div>
+
+            <!-- Mobile Right Touch Controls (Accelerate / Brake) -->
+            <div class="interactive flex gap-2 md:hidden">
+                <button id="btn-brake" class="btn-touch w-16 h-16 rounded-full bg-rose-900/60 border-rose-500/40 flex items-center justify-center text-xl text-rose-300 shadow-lg">
+                    <i class="fa-solid fa-shoe-prints"></i>
+                </button>
+                <button id="btn-accel" class="btn-touch w-16 h-16 rounded-full bg-emerald-900/60 border-emerald-500/40 flex items-center justify-center text-xl text-emerald-300 shadow-lg">
+                    <i class="fa-solid fa-gauge-high"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN LOGIC ENGINE -->
+    <script>
+        // --- Web Audio Synthesizer (Zero external audio files required) ---
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.engineOsc = null;
+                this.engineGain = null;
+                this.isPlaying = false;
+            }
+
+            init() {
+                if (this.ctx) return;
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+
+                // Continuous Engine sound using low pitch sawtooth oscillator
+                this.engineOsc = this.ctx.createOscillator();
+                this.engineGain = this.ctx.createGain();
+
+                this.engineOsc.type = 'sawtooth';
+                this.engineOsc.frequency.setValueAtTime(45, this.ctx.currentTime); // idling sound frequency
+
+                // Lowpass filter to muffle raw wave into realistic diesel engine rumble
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(300, this.ctx.currentTime);
+
+                this.engineOsc.connect(filter);
+                filter.connect(this.engineGain);
+                this.engineGain.connect(this.ctx.destination);
+
+                this.engineGain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                this.engineOsc.start();
+                this.isPlaying = true;
+            }
+
+            updateEngineSpeed(speedRatio) {
+                if (!this.ctx || !this.isPlaying) return;
+                // Pitch rises smoothly with speed
+                const targetFreq = 45 + (speedRatio * 110);
+                this.engineOsc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.1);
+                this.engineGain.gain.setTargetAtTime(0.12 + (speedRatio * 0.15), this.ctx.currentTime, 0.1);
+            }
+
+            playHorn() {
+                if (!this.ctx) this.init();
+                const now = this.ctx.currentTime;
+                
+                // Classic Loud Bangladeshi Hydraulic Bus Dual-Tone Horn
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const hornGain = this.ctx.createGain();
+
+                osc1.type = 'triangle';
+                osc2.type = 'square';
+
+                osc1.frequency.setValueAtTime(370, now); // F4
+                osc2.frequency.setValueAtTime(466.16, now); // A#4
+
+                hornGain.gain.setValueAtTime(0.35, now);
+                hornGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+
+                osc1.connect(hornGain);
+                osc2.connect(hornGain);
+                hornGain.connect(this.ctx.destination);
+
+                osc1.start(now);
+                osc2.start(now);
+                osc1.stop(now + 0.85);
+                osc2.stop(now + 0.85);
+            }
+        }
+
+        const audioFX = new SoundEngine();
+
+        // --- GAME STATE & PHYSICS CONSTANTS ---
+        const gameState = {
+            speed: 0, // km/h equivalent
+            maxSpeed: 110,
+            acceleration: 0.22,
+            friction: 0.982,
+            brakeForce: 0.45,
+            steeringAngle: 0,
+            maxSteer: 0.035,
+            busPosition: new THREE.Vector3(0, 0, 0),
+            busRotation: 0,
+            cameraMode: 0, // 0: Third Person, 1: Cockpit/First Person
+            isNight: false,
+            passengers: 32,
+            stopsVisited: 0
+        };
+
+        const keyState = {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+            space: false
+        };
+
+        // --- THREE.JS SCENE SETUP ---
+        let scene, camera, renderer, busGroup, headlights = [];
+        let roadSegments = [];
+        let sceneryObjects = [];
+        let passengerStops = [];
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Sky Blue
+            scene.fog = new THREE.FogExp2(0x87CEEB, 0.0035);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xfffaed, 1.2);
+            sunLight.position.set(100, 150, 50);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 500;
+            const d = 100;
+            sunLight.shadow.camera.left = -d;
+            sunLight.shadow.camera.right = d;
+            sunLight.shadow.camera.top = d;
+            sunLight.shadow.camera.bottom = -d;
+            scene.add(sunLight);
+            scene.sunLight = sunLight;
+
+            // Build Scenery & Road Layout
+            createRoadNetwork();
+            createBangladeshiBus();
+            createEnvironmentElements();
+
+            // Resize listener
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        // --- BANGLADESHI INTERCITY BUS BUILDER ---
+        function createBangladeshiBus() {
+            busGroup = new THREE.Group();
+
+            // Colors (Green Line / Classic BD Intercity Theme)
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x006a4e, roughness: 0.3, metalness: 0.2 }); // BD Green
+            const stripeMaterial = new THREE.MeshStandardMaterial({ color: 0xf42a41, roughness: 0.4 }); // Red Accent Line
+            const glassMaterial = new THREE.MeshPhysicalMaterial({ color: 0x111111, transparent: true, opacity: 0.7, roughness: 0.1, transmission: 0.6 });
+            const chromeMaterial = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.1 });
+            const tireMaterial = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.8 });
+
+            // Bus Main Body Box (Width: 2.8m, Height: 3.2m, Length: 10m)
+            const mainBodyGeo = new THREE.BoxGeometry(2.8, 2.6, 9.6);
+            const mainBody = new THREE.Mesh(mainBodyGeo, bodyMaterial);
+            mainBody.position.y = 1.8;
+            mainBody.castShadow = true;
+            mainBody.receiveShadow = true;
+            busGroup.add(mainBody);
+
+            // Red Stripe (Bengali Style Design Band)
+            const stripeGeo = new THREE.BoxGeometry(2.82, 0.4, 9.62);
+            const stripe = new THREE.Mesh(stripeGeo, stripeMaterial);
+            stripe.position.y = 1.4;
+            busGroup.add(stripe);
+
+            // Front Cabin Windshield Glass
+            const windshieldGeo = new THREE.BoxGeometry(2.7, 1.2, 0.2);
+            const windshield = new THREE.Mesh(windshieldGeo, glassMaterial);
+            windshield.position.set(0, 2.3, 4.75);
+            windshield.rotation.x = -0.1;
+            busGroup.add(windshield);
+
+            // Side Windows
+            for (let z = -3.5; z <= 3.5; z += 1.6) {
+                const sideWinGeo = new THREE.BoxGeometry(2.86, 0.9, 1.2);
+                const sideWin = new THREE.Mesh(sideWinGeo, glassMaterial);
+                sideWin.position.set(0, 2.3, z);
+                busGroup.add(sideWin);
+            }
+
+            // Wheels & Tires (4 Wheel positions)
+            const wheelGeo = new THREE.CylinderGeometry(0.75, 0.75, 0.6, 24);
+            wheelGeo.rotateZ(Math.PI / 2);
+
+            const wheelPositions = [
+                [-1.3, 0.75, 3.0],  // Front Left
+                [1.3, 0.75, 3.0],   // Front Right
+                [-1.3, 0.75, -2.8], // Rear Left
+                [1.3, 0.75, -2.8]   // Rear Right
+            ];
+
+            wheelPositions.forEach(pos => {
+                const wheel = new THREE.Mesh(wheelGeo, tireMaterial);
+                wheel.position.set(...pos);
+                wheel.castShadow = true;
+                
+                // Rim detail
+                const rimGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.62, 12);
+                rimGeo.rotateZ(Math.PI / 2);
+                const rim = new THREE.Mesh(rimGeo, chromeMaterial);
+                wheel.add(rim);
+
+                busGroup.add(wheel);
+            });
+
+            // Headlights (3D Mesh + Spotlights)
+            const headLightGeo = new THREE.BoxGeometry(0.5, 0.3, 0.2);
+            const headLightMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+            
+            [-0.9, 0.9].forEach(x => {
+                const lightMesh = new THREE.Mesh(headLightGeo, headLightMat);
+                lightMesh.position.set(x, 1.0, 4.8);
+                busGroup.add(lightMesh);
+
+                // SpotLight for Night driving
+                const spotLight = new THREE.SpotLight(0xffffff, 0, 80, Math.PI / 5, 0.4);
+                spotLight.position.set(x, 1.0, 4.8);
+                spotLight.target.position.set(x, 0.5, 20);
+                busGroup.add(spotLight);
+                busGroup.add(spotLight.target);
+                headlights.push(spotLight);
+            });
+
+            // Rear Lights
+            const tailLightGeo = new THREE.BoxGeometry(0.4, 0.3, 0.1);
+            const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            [-1.0, 1.0].forEach(x => {
+                const tailMesh = new THREE.Mesh(tailLightGeo, tailLightMat);
+                tailMesh.position.set(x, 1.2, -4.85);
+                busGroup.add(tailMesh);
+            });
+
+            // Side Mirrors (Bangladeshi Long Stems)
+            [-1.5, 1.5].forEach((x, idx) => {
+                const mirrorStem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.8), chromeMaterial);
+                mirrorStem.position.set(x, 2.2, 4.4);
+                mirrorStem.rotation.z = idx === 0 ? -0.4 : 0.4;
+
+                const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.25), chromeMaterial);
+                mirrorGlass.position.set(x > 0 ? 0.3 : -0.3, 0.3, 0);
+                mirrorStem.add(mirrorGlass);
+
+                busGroup.add(mirrorStem);
+            });
+
+            scene.add(busGroup);
+        }
+
+        // --- HIGHWAY SCENERY & ENVIRONMENT ---
+        function createRoadNetwork() {
+            // Infinite scrolling loop road segments
+            const segmentLength = 200;
+            const roadWidth = 14;
+
+            // Green Terrain Ground
+            const groundGeo = new THREE.PlaneGeometry(1000, 2000);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d7e35, roughness: 0.9 }); // BD Lush Rural Green
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.05;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Asphalt Road Strip
+            const roadGeo = new THREE.PlaneGeometry(roadWidth, 2000);
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x222225, roughness: 0.6 });
+            const road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = 0;
+            road.receiveShadow = true;
+            scene.add(road);
+
+            // Highway Yellow/White Markings
+            const stripeGeo = new THREE.PlaneGeometry(0.3, 2000);
+            const stripeMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b }); // Yellow divider
+            const centerStripe = new THREE.Mesh(stripeGeo, stripeMat);
+            centerStripe.rotation.x = -Math.PI / 2;
+            centerStripe.position.y = 0.02;
+            scene.add(centerStripe);
+
+            // Side White Lines
+            [-6.5, 6.5].forEach(x => {
+                const sideLineGeo = new THREE.PlaneGeometry(0.3, 2000);
+                const sideLineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const sideLine = new THREE.Mesh(sideLineGeo, sideLineMat);
+                sideLine.rotation.x = -Math.PI / 2;
+                sideLine.position.set(x, 0.02, 0);
+                scene.add(sideLine);
+            });
+        }
+
+        function createEnvironmentElements() {
+            // Populate sides of highway with Trees, Palm trees, Bangladeshi Stalls & Meghna Bridge model
+            const treeGeo = new THREE.ConeGeometry(3, 8, 7);
+            const trunkGeo = new THREE.CylinderGeometry(0.4, 0.6, 3);
+            const treeMat = new THREE.MeshStandardMaterial({ color: 0x1b4d18, roughness: 0.8 });
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+
+            // Generate trees along road sides
+            for (let z = -800; z < 800; z += 18) {
+                [-1, 1].forEach(side => {
+                    const xOffset = side * (12 + Math.random() * 25);
+                    const treeGroup = new THREE.Group();
+                    
+                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                    trunk.position.y = 1.5;
+                    trunk.castShadow = true;
+                    treeGroup.add(trunk);
+
+                    const leaves = new THREE.Mesh(treeGeo, treeMat);
+                    leaves.position.y = 5.5;
+                    leaves.castShadow = true;
+                    treeGroup.add(leaves);
+
+                    treeGroup.position.set(xOffset, 0, z + (Math.random() * 5));
+                    scene.add(treeGroup);
+                    sceneryObjects.push(treeGroup);
+                });
+            }
+
+            // Add Bangladeshi Highway Side Stalls/Tea Shops (Tong Dukan) & Bus Stops
+            for (let z = -600; z < 600; z += 250) {
+                const stallGroup = new THREE.Group();
+                
+                // Wooden shop box
+                const shopGeo = new THREE.BoxGeometry(4, 2.5, 3);
+                const shopMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+                const shop = new THREE.Mesh(shopGeo, shopMat);
+                shop.position.y = 1.25;
+                stallGroup.add(shop);
+
+                // Tin Roof (Corrugated Metal look)
+                const roofGeo = new THREE.BoxGeometry(4.6, 0.2, 3.6);
+                const roofMat = new THREE.MeshStandardMaterial({ color: 0x556b2f });
+                const roof = new THREE.Mesh(roofGeo, roofMat);
+                roof.position.set(0, 2.6, 0);
+                roof.rotation.z = 0.1;
+                stallGroup.add(roof);
+
+                // Bus Stop Sign post
+                const signPost = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4), trunkMat);
+                signPost.position.set(-3, 2, 2);
+                const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.8, 0.1), new THREE.MeshBasicMaterial({ color: 0x10b981 }));
+                signBoard.position.set(-3, 3.6, 2);
+                stallGroup.add(signPost);
+                stallGroup.add(signBoard);
+
+                stallGroup.position.set(12, 0, z);
+                scene.add(stallGroup);
+                passengerStops.push({ x: 8, z: z, visited: false });
+            }
+
+            // Iconic Bangladeshi Bridge Model Segment (e.g., Meghna Bridge Style Pillars)
+            const bridgeZ = 200;
+            const pillarGeo = new THREE.BoxGeometry(3, 20, 3);
+            const pillarMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.5 });
+            
+            [-9, 9].forEach(x => {
+                const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+                pillar.position.set(x, 5, bridgeZ);
+                scene.add(pillar);
+
+                // Overhead Truss Beam
+                const beam = new THREE.Mesh(new THREE.BoxGeometry(22, 2, 3), pillarMat);
+                beam.position.set(0, 14, bridgeZ);
+                scene.add(beam);
+            });
+        }
+
+        // --- CONTROLS & EVENT LISTENERS ---
+        function setupControls() {
+            // Keyboard Listener
+            window.addEventListener('keydown', (e) => {
+                audioFX.init(); // Init Audio Context on first key press
+                switch (e.code) {
+                    case 'KeyW': case 'ArrowUp': keyState.up = true; break;
+                    case 'KeyS': case 'ArrowDown': keyState.down = true; break;
+                    case 'KeyA': case 'ArrowLeft': keyState.left = true; break;
+                    case 'KeyD': case 'ArrowRight': keyState.right = true; break;
+                    case 'Space': keyState.space = true; break;
+                    case 'KeyC': toggleCamera(); break;
+                    case 'KeyH': audioFX.playHorn(); showToast("📢 HYDRAULIC HORN BLOWN!"); break;
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                switch (e.code) {
+                    case 'KeyW': case 'ArrowUp': keyState.up = false; break;
+                    case 'KeyS': case 'ArrowDown': keyState.down = false; break;
+                    case 'KeyA': case 'ArrowLeft': keyState.left = false; break;
+                    case 'KeyD': case 'ArrowRight': keyState.right = false; break;
+                    case 'Space': keyState.space = false; break;
+                }
+            });
+
+            // On-screen Buttons & Touch Events
+            const bindTouch = (id, keyName) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const start = (e) => { e.preventDefault(); audioFX.init(); keyState[keyName] = true; };
+                const end = (e) => { e.preventDefault(); keyState[keyName] = false; };
+                btn.addEventListener('touchstart', start);
+                btn.addEventListener('touchend', end);
+                btn.addEventListener('mousedown', start);
+                btn.addEventListener('mouseup', end);
+            };
+
+            bindTouch('btn-accel', 'up');
+            bindTouch('btn-brake', 'down');
+            bindTouch('btn-left', 'left');
+            bindTouch('btn-right', 'right');
+
+            document.getElementById('btn-camera').addEventListener('click', toggleCamera);
+            document.getElementById('btn-horn').addEventListener('click', () => {
+                audioFX.playHorn();
+                showToast("📢 HORN!");
+            });
+            document.getElementById('btn-weather').addEventListener('click', toggleDayNight);
+        }
+
+        function toggleCamera() {
+            gameState.cameraMode = (gameState.cameraMode + 1) % 2;
+            const modeText = gameState.cameraMode === 0 ? "Third-Person View" : "Driver Cockpit View";
+            showToast("🎥 Camera: " + modeText);
+        }
+
+        function toggleDayNight() {
+            gameState.isNight = !gameState.isNight;
+            const icon = document.getElementById('weather-icon');
+            
+            if (gameState.isNight) {
+                scene.background.setHex(0x050914);
+                scene.fog.color.setHex(0x050914);
+                scene.sunLight.intensity = 0.1;
+                headlights.forEach(hl => hl.intensity = 2.5);
+                icon.className = "fa-solid fa-moon text-blue-300";
+                showToast("🌙 Night Mode Activated (Headlights ON)");
+            } else {
+                scene.background.setHex(0x87CEEB);
+                scene.fog.color.setHex(0x87CEEB);
+                scene.sunLight.intensity = 1.2;
+                headlights.forEach(hl => hl.intensity = 0);
+                icon.className = "fa-solid fa-sun text-yellow-400";
+                showToast("☀️ Day Mode Activated");
+            }
+        }
+
+        function showToast(text) {
+            const toast = document.getElementById('toast-msg');
+            toast.innerText = text;
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0px)';
+            clearTimeout(window.toastTimer);
+            window.toastTimer = setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-16px)';
+            }, 2500);
+        }
+
+        // --- PHYSICS & VEHICLE SIMULATION ---
+        function updatePhysics() {
+            // Acceleration & Braking
+            if (keyState.up) {
+                gameState.speed += gameState.acceleration;
+            } else if (keyState.down) {
+                gameState.speed -= gameState.brakeForce;
+            } else {
+                gameState.speed *= gameState.friction; // Friction slowdown
+            }
+
+            // Handbrake
+            if (keyState.space) {
+                gameState.speed *= 0.90;
+            }
+
+            // Speed bounds
+            gameState.speed = Math.max(-20, Math.min(gameState.maxSpeed, gameState.speed));
+
+            // Steering Logic (Speed dependent turning radius)
+            const speedFactor = Math.abs(gameState.speed) / gameState.maxSpeed;
+            if (keyState.left) {
+                gameState.busRotation += gameState.maxSteer * (gameState.speed >= 0 ? 1 : -1);
+            }
+            if (keyState.right) {
+                gameState.busRotation -= gameState.maxSteer * (gameState.speed >= 0 ? 1 : -1);
+            }
+
+            // Road Bounds Soft Barrier (Keep bus near highway lane)
+            if (gameState.busPosition.x > 8) {
+                gameState.busPosition.x = 8;
+                gameState.speed *= 0.95;
+            } else if (gameState.busPosition.x < -8) {
+                gameState.busPosition.x = -8;
+                gameState.speed *= 0.95;
+            }
+
+            // Forward Motion Vector calculation
+            const velocityZ = Math.cos(gameState.busRotation) * (gameState.speed * 0.12);
+            const velocityX = Math.sin(gameState.busRotation) * (gameState.speed * 0.12);
+
+            gameState.busPosition.z += velocityZ;
+            gameState.busPosition.x += velocityX;
+
+            // Apply to 3D Bus Mesh
+            busGroup.position.copy(gameState.busPosition);
+            busGroup.rotation.y = gameState.busRotation;
+
+            // Update Engine Sound
+            audioFX.updateEngineSpeed(Math.abs(gameState.speed) / gameState.maxSpeed);
+
+            // Check Passenger Bus Stops Proximity
+            passengerStops.forEach((stop, index) => {
+                if (!stop.visited && Math.abs(gameState.busPosition.z - stop.z) < 10 && Math.abs(gameState.busPosition.x - stop.x) < 5) {
+                    if (Math.abs(gameState.speed) < 5) { // Must come to slow speed / stop
+                        stop.visited = true;
+                        const picked = Math.floor(Math.random() * 5) + 2;
+                        gameState.passengers += picked;
+                        document.getElementById('passenger-count').innerText = gameState.passengers;
+                        showToast(`🚌 Passenger Stop! Boarded +${picked} passengers.`);
+                    }
+                }
+            });
+
+            // Infinite Road Repositioning Loop
+            if (gameState.busPosition.z > 700) {
+                gameState.busPosition.z = -700;
+                passengerStops.forEach(s => s.visited = false); // Reset stops
+            } else if (gameState.busPosition.z < -700) {
+                gameState.busPosition.z = 700;
+            }
+        }
+
+        // --- CAMERA CONTROLLER ---
+        function updateCamera() {
+            if (gameState.cameraMode === 0) {
+                // 3rd Person Follow Camera behind bus
+                const relativeCameraOffset = new THREE.Vector3(0, 4.5, -12);
+                const cameraPosition = relativeCameraOffset.applyMatrix4(busGroup.matrixWorld);
+                
+                camera.position.lerp(cameraPosition, 0.1);
+                camera.lookAt(busGroup.position.clone().add(new THREE.Vector3(0, 1.8, 5)));
+            } else {
+                // 1st Person Cockpit View inside driver seat
+                const cockpitOffset = new THREE.Vector3(-0.75, 2.3, 3.6);
+                const cameraPosition = cockpitOffset.applyMatrix4(busGroup.matrixWorld);
+                
+                camera.position.copy(cameraPosition);
+                const target = new THREE.Vector3(-0.75, 2.0, 20).applyMatrix4(busGroup.matrixWorld);
+                camera.lookAt(target);
+            }
+        }
+
+        // --- UI & MINIMAP RENDERER ---
+        function updateUI() {
+            // Speedometer update
+            const displaySpeed = Math.round(Math.abs(gameState.speed));
+            document.getElementById('speed-display').innerText = displaySpeed;
+
+            // Dynamic Gear indicator text
+            const gearEl = document.getElementById('gear-display');
+            if (gameState.speed < -0.5) gearEl.innerText = "GEAR: R";
+            else if (displaySpeed === 0) gearEl.innerText = "GEAR: N";
+            else gearEl.innerText = `GEAR: D${Math.min(5, Math.floor(displaySpeed / 22) + 1)}`;
+
+            // Render Radar Minimap
+            const canvas = document.getElementById('minimap');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw Road
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(width / 2 - 12, 0, 24, height);
+
+            // Draw Center Line
+            ctx.strokeStyle = '#f59e0b';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(width / 2, 0);
+            ctx.lineTo(width / 2, height);
+            ctx.stroke();
+
+            // Draw Bus Icon on Minimap
+            const mapX = width / 2 + (gameState.busPosition.x * 1.5);
+            const mapY = height / 2;
+
+            ctx.save();
+            ctx.translate(mapX, mapY);
+            ctx.rotate(-gameState.busRotation);
+            ctx.fillStyle = '#10B981'; // Emerald Bus Dot
+            ctx.fillRect(-3, -6, 6, 12);
+            ctx.restore();
+        }
+
+        // --- WINDOW RESIZE ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- GAME MAIN ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updatePhysics();
+            updateCamera();
+            updateUI();
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize Application
+        window.onload = function() {
+            init3D();
+            setupControls();
+            animate();
+            
+            // Show initial welcome toast
+            setTimeout(() => {
+                showToast("🚌 Bangladesh Bus Simulator Ready! Press W / Up Arrow to Drive.");
+            }, 800);
+        };
+    </script>
+</body>
+</html>
+```
